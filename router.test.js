@@ -227,6 +227,80 @@ test("resolves configured latest tags", async () => {
   assert.equal(await resolveLatestReleaseTag("YangSiJun528", "jungle-bell", env), "v0.2.5");
 });
 
+test("caches fetched latest release tags in memory", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalNow = Date.now;
+  let now = 1_000;
+  const requests = [];
+  Date.now = () => now;
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url, options });
+    return latestReleaseResponse("v1.2.3", {
+      etag: '"latest-cache-etag"',
+      lastModified: "Tue, 14 Apr 2026 02:24:26 GMT",
+    });
+  };
+
+  try {
+    const cacheEnv = { LATEST_TAG_CACHE_TTL_SECONDS: "30" };
+
+    assert.equal(await resolveLatestReleaseTag("octocat", "cache-demo", cacheEnv), "v1.2.3");
+    now += 29_000;
+    assert.equal(await resolveLatestReleaseTag("octocat", "cache-demo", cacheEnv), "v1.2.3");
+
+    assert.equal(requests.length, 1);
+    assert.equal(
+      requests[0].url,
+      "https://api.github.com/repos/octocat/cache-demo/releases/latest",
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    Date.now = originalNow;
+  }
+});
+
+test("revalidates stale latest release tags conditionally", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalNow = Date.now;
+  let now = 1_000;
+  const requests = [];
+  Date.now = () => now;
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url, options });
+    if (requests.length === 1) {
+      return latestReleaseResponse("v2.0.0", {
+        etag: '"latest-revalidate-etag"',
+        lastModified: "Tue, 14 Apr 2026 02:24:26 GMT",
+      });
+    }
+    return new Response(null, {
+      status: 304,
+      headers: {
+        etag: '"latest-revalidate-etag"',
+        "last-modified": "Tue, 14 Apr 2026 02:24:26 GMT",
+      },
+    });
+  };
+
+  try {
+    const cacheEnv = {
+      GITHUB_TOKEN: "token",
+      LATEST_TAG_CACHE_TTL_SECONDS: "30",
+    };
+
+    assert.equal(await resolveLatestReleaseTag("octocat", "revalidate-demo", cacheEnv), "v2.0.0");
+    now += 31_000;
+    assert.equal(await resolveLatestReleaseTag("octocat", "revalidate-demo", cacheEnv), "v2.0.0");
+
+    assert.equal(requests.length, 2);
+    assert.equal(requests[1].options.headers["If-None-Match"], '"latest-revalidate-etag"');
+    assert.equal(requests[1].options.headers.Authorization, "Bearer token");
+  } finally {
+    globalThis.fetch = originalFetch;
+    Date.now = originalNow;
+  }
+});
+
 test("builds raw GitHub URLs with encoded path segments", () => {
   assert.equal(
     buildRawGitHubUrl({
@@ -238,3 +312,14 @@ test("builds raw GitHub URLs with encoded path segments", () => {
     "https://raw.githubusercontent.com/YangSiJun528/jungle-bell/v0.2.5/install/jungle-bell.sh",
   );
 });
+
+function latestReleaseResponse(tagName, { etag, lastModified }) {
+  return new Response(JSON.stringify({ tag_name: tagName }), {
+    status: 200,
+    headers: {
+      etag,
+      "last-modified": lastModified,
+      "content-type": "application/json",
+    },
+  });
+}

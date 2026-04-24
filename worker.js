@@ -15,6 +15,7 @@ const REF_RE = /^[A-Za-z0-9._-]{1,120}$/;
 const TAG_RE = /^v\d+\.\d+\.\d+(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?$/;
 
 let validatedBundledConfig;
+const latestReleaseCache = new Map();
 
 export default {
   async fetch(request, env, ctx) {
@@ -246,16 +247,21 @@ export async function resolveLatestReleaseTag(owner, repo, env = {}) {
     return tag;
   }
 
-  const response = await fetch(
-    `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/releases/latest`,
-    {
-      headers: githubHeaders(env),
-      cf: {
-        cacheEverything: true,
-        cacheTtl: latestTagCacheTtl(env),
-      },
-    },
-  );
+  const now = Date.now();
+  const cached = latestReleaseCache.get(key);
+  if (cached !== undefined && cached.expiresAt > now) {
+    return cached.tag;
+  }
+
+  const response = await fetchLatestRelease(owner, repo, env, cached);
+  if (response.status === 304) {
+    if (cached === undefined) {
+      throw new Error(`latest release cache is missing: ${owner}/${repo}`);
+    }
+    latestReleaseCache.set(key, extendLatestReleaseCache(cached, response, env, now));
+    return cached.tag;
+  }
+
   if (!response.ok) {
     throw new Error(`latest release lookup failed: ${owner}/${repo} ${response.status}`);
   }
@@ -264,6 +270,10 @@ export async function resolveLatestReleaseTag(owner, repo, env = {}) {
   if (!isPlainObject(release) || !isValidTag(release.tag_name)) {
     throw new Error(`latest release tag is invalid: ${owner}/${repo}`);
   }
+  latestReleaseCache.set(
+    key,
+    latestReleaseCacheEntry(release.tag_name, response, env, now),
+  );
   return release.tag_name;
 }
 
@@ -424,6 +434,28 @@ function latestTagCacheTtl(env) {
   return Math.max(30, Math.min(3600, Math.trunc(parsed)));
 }
 
+function latestReleaseCacheEntry(tag, response, env, now = Date.now()) {
+  return {
+    tag,
+    etag: response.headers.get("etag"),
+    lastModified: response.headers.get("last-modified"),
+    expiresAt: latestReleaseExpiresAt(env, now),
+  };
+}
+
+function extendLatestReleaseCache(cached, response, env, now = Date.now()) {
+  return {
+    ...cached,
+    etag: response.headers.get("etag") ?? cached.etag,
+    lastModified: response.headers.get("last-modified") ?? cached.lastModified,
+    expiresAt: latestReleaseExpiresAt(env, now),
+  };
+}
+
+function latestReleaseExpiresAt(env, now) {
+  return now + latestTagCacheTtl(env) * 1000;
+}
+
 function parseLatestTags(env) {
   if (typeof env.LATEST_TAGS_JSON !== "string" || env.LATEST_TAGS_JSON.trim() === "") {
     return {};
@@ -435,12 +467,31 @@ function parseLatestTags(env) {
   return parsed;
 }
 
-function githubHeaders(env) {
+function fetchLatestRelease(owner, repo, env, cached) {
+  return fetch(latestReleaseApiUrl(owner, repo), {
+    headers: githubHeaders(env, cached),
+    cf: {
+      cacheEverything: true,
+      cacheTtl: latestTagCacheTtl(env),
+    },
+  });
+}
+
+function latestReleaseApiUrl(owner, repo) {
+  return `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/releases/latest`;
+}
+
+function githubHeaders(env, cached = undefined) {
   const headers = {
     Accept: "application/vnd.github+json",
     "User-Agent": "install.sijun-yang.com-worker",
     "X-GitHub-Api-Version": "2022-11-28",
   };
+  if (cached?.etag) {
+    headers["If-None-Match"] = cached.etag;
+  } else if (cached?.lastModified) {
+    headers["If-Modified-Since"] = cached.lastModified;
+  }
   if (typeof env.GITHUB_TOKEN === "string" && env.GITHUB_TOKEN.trim() !== "") {
     headers.Authorization = `Bearer ${env.GITHUB_TOKEN}`;
   }

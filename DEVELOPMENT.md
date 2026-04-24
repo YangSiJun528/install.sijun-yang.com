@@ -54,6 +54,8 @@ HOME=/tmp npx wrangler deploy --dry-run
 - `tag` query만 명시 버전 선택에 사용한다.
 - `?tag=vX.Y.Z` 또는 `?tag=vX.Y.Z-prerelease` 형태만 허용한다.
 - `ref: "latest"`는 GitHub latest release tag를 조회한 뒤 그 tag 기준 파일로 redirect한다.
+- latest release tag는 Worker isolate 메모리와 Cloudflare fetch cache로 캐시한다.
+- stale cache revalidation은 GitHub `ETag`/`Last-Modified` 기반 conditional GET을 사용한다.
 - `/healthz`는 번들된 설정을 검증해서 `ok`를 반환한다.
 
 ## 배포
@@ -66,5 +68,13 @@ HOME=/tmp npx wrangler deploy --dry-run
 CLOUDFLARE_API_TOKEN
 CLOUDFLARE_ACCOUNT_ID
 ```
+
+선택 Secret:
+
+```text
+GITHUB_TOKEN
+```
+
+`GITHUB_TOKEN`을 설정하면 GitHub API rate limit이 더 넉넉해지고, unchanged release에 대한 conditional GET `304` 응답이 primary rate limit에 덜 민감해진다.
 
 `redirects.json`은 Worker 배포 번들에 포함되므로, 설정 변경도 `main` push 이후 배포되어야 반영된다.
