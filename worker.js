@@ -1,13 +1,16 @@
 const DEFAULT_CONFIG_URL =
   "https://raw.githubusercontent.com/YangSiJun528/install.sijun-yang.com/main/redirects.json";
 const DEFAULT_CONFIG_CACHE_TTL_SECONDS = 60;
+const DEFAULT_LATEST_TAG_CACHE_TTL_SECONDS = 300;
 const DEFAULT_REDIRECT_STATUS = 302;
+const LATEST_REF = "latest";
 const ROUTE_OWNER_PREFIX = "@";
 
 const IDENTIFIER_RE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/;
 const REPO_RE = /^[A-Za-z0-9._-]{1,100}$/;
 const FILE_RE = /^[A-Za-z0-9._-]{1,160}$/;
 const REF_RE = /^[A-Za-z0-9._-]{1,120}$/;
+const TAG_RE = /^v\d+\.\d+\.\d+(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?$/;
 
 export default {
   async fetch(request, env, ctx) {
@@ -37,6 +40,15 @@ export async function handleRequest(request, env = {}, ctx = undefined) {
     return notFound(request.method);
   }
 
+  const versionOverride = parseVersionOverride(url.searchParams);
+  if (!versionOverride.ok) {
+    return textResponse(`${versionOverride.error}\n`, {
+      status: 400,
+      method: request.method,
+      headers: { "Cache-Control": "no-store" },
+    });
+  }
+
   let config;
   try {
     config = await loadConfig(env);
@@ -48,7 +60,17 @@ export async function handleRequest(request, env = {}, ctx = undefined) {
     });
   }
 
-  const target = resolveTarget(config, route.value);
+  let target;
+  try {
+    target = await resolveTarget(config, route.value, versionOverride.tag, env);
+  } catch (error) {
+    return textResponse("Target unavailable\n", {
+      status: 503,
+      method: request.method,
+      headers: { "Cache-Control": "no-store" },
+    });
+  }
+
   if (!target) {
     return notFound(request.method);
   }
@@ -165,7 +187,23 @@ export function parsePublicRoute(pathname) {
   return { ok: true, value: { owner, repo, file } };
 }
 
-export function resolveTarget(config, route) {
+export function parseVersionOverride(searchParams) {
+  const tags = searchParams.getAll("tag");
+  if (tags.length > 1) {
+    return { ok: false, error: "Specify tag only once" };
+  }
+  if (tags.length === 1) {
+    const tag = tags[0];
+    if (!isValidTag(tag)) {
+      return { ok: false, error: "Invalid tag" };
+    }
+    return { ok: true, tag };
+  }
+
+  return { ok: true, tag: null };
+}
+
+export async function resolveTarget(config, route, versionTag = null, env = {}) {
   const owner = route.owner === null
     ? config.default_owner
     : config.owner_aliases[route.owner] ?? route.owner;
@@ -180,7 +218,51 @@ export function resolveTarget(config, route) {
     return null;
   }
 
-  return buildRawGitHubUrl(match);
+  const ref = await resolveRef(match, versionTag, env);
+  return buildRawGitHubUrl({ ...match, ref });
+}
+
+export async function resolveRef(file, versionTag = null, env = {}) {
+  if (versionTag !== null) {
+    return versionTag;
+  }
+  if (file.ref !== LATEST_REF) {
+    return file.ref;
+  }
+
+  return resolveLatestReleaseTag(file.owner, file.repo, env);
+}
+
+export async function resolveLatestReleaseTag(owner, repo, env = {}) {
+  const key = `${owner}/${repo}`;
+  const configuredTags = parseLatestTags(env);
+  if (configuredTags[key] !== undefined) {
+    const tag = configuredTags[key];
+    if (!isValidTag(tag)) {
+      throw new Error(`invalid configured latest tag: ${key}`);
+    }
+    return tag;
+  }
+
+  const response = await fetch(
+    `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/releases/latest`,
+    {
+      headers: githubHeaders(env),
+      cf: {
+        cacheEverything: true,
+        cacheTtl: latestTagCacheTtl(env),
+      },
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`latest release lookup failed: ${owner}/${repo} ${response.status}`);
+  }
+
+  const release = await response.json();
+  if (!isPlainObject(release) || !isValidTag(release.tag_name)) {
+    throw new Error(`latest release tag is invalid: ${owner}/${repo}`);
+  }
+  return release.tag_name;
 }
 
 export function buildRawGitHubUrl(file) {
@@ -295,6 +377,10 @@ function isValidRef(value) {
   return typeof value === "string" && REF_RE.test(value);
 }
 
+function isValidTag(value) {
+  return typeof value === "string" && TAG_RE.test(value);
+}
+
 function isValidPath(value) {
   if (typeof value !== "string" || value.startsWith("/") || value.includes("\\")) {
     return false;
@@ -326,6 +412,37 @@ function configCacheTtl(env) {
     return DEFAULT_CONFIG_CACHE_TTL_SECONDS;
   }
   return Math.max(30, Math.min(3600, Math.trunc(parsed)));
+}
+
+function latestTagCacheTtl(env) {
+  const parsed = Number(env.LATEST_TAG_CACHE_TTL_SECONDS);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_LATEST_TAG_CACHE_TTL_SECONDS;
+  }
+  return Math.max(30, Math.min(3600, Math.trunc(parsed)));
+}
+
+function parseLatestTags(env) {
+  if (typeof env.LATEST_TAGS_JSON !== "string" || env.LATEST_TAGS_JSON.trim() === "") {
+    return {};
+  }
+  const parsed = JSON.parse(env.LATEST_TAGS_JSON);
+  if (!isPlainObject(parsed)) {
+    throw new Error("LATEST_TAGS_JSON must be an object");
+  }
+  return parsed;
+}
+
+function githubHeaders(env) {
+  const headers = {
+    Accept: "application/vnd.github+json",
+    "User-Agent": "install.sijun-yang.com-worker",
+    "X-GitHub-Api-Version": "2022-11-28",
+  };
+  if (typeof env.GITHUB_TOKEN === "string" && env.GITHUB_TOKEN.trim() !== "") {
+    headers.Authorization = `Bearer ${env.GITHUB_TOKEN}`;
+  }
+  return headers;
 }
 
 function redirectStatus(env) {
@@ -379,6 +496,7 @@ function landingText() {
     "",
     "Use /<repo>/<file> for YangSiJun528 repos.",
     "Use /@<owner-or-alias>/<repo>/<file> for other owners.",
+    "Use ?tag=vX.Y.Z for exact versions.",
     "",
     "Examples:",
     "  /jungle-bell/jungle-bell.sh",

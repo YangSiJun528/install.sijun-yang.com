@@ -1,55 +1,36 @@
 # install.sijun-yang.com
 
-Cloudflare Worker redirector for short install URLs.
+제가 관리하는 개인 프로젝트용 짧은 설치 주소를 제공하는 프로젝트입니다.
 
-Public URLs keep only the repository name and file name:
+미리 허용한 파일 주소로만 이동할 수 있으며, 요청자가 임의의 외부 주소로 리다이렉트 대상을 바꿀 수 없도록 제한합니다.
 
-```text
-https://install.sijun-yang.com/jungle-bell/jungle-bell.sh
-https://install.sijun-yang.com/jungle-bell/jungle-bell.ps1
-https://install.sijun-yang.com/@owner/repo/install.sh
-```
+## 사용 방법
 
-The Worker reads `redirects.json` and redirects only registered files to their
-GitHub raw file URLs. Repo-internal folders are configured in JSON, not shown in
-public URLs.
-
-## Configure Redirects
-
-```json
-{
-  "repo": "jungle-bell",
-  "file": "jungle-bell.sh",
-  "ref": "main",
-  "path": "install/jungle-bell.sh"
-}
-```
-
-For the default owner (`YangSiJun528`), omit `owner`. For another owner or org,
-set `owner`, or add an alias in `owner_aliases` and use `/@alias/repo/file`.
-
-## Commands
+최신 버전 설치:
 
 ```bash
-npm run check
-npm run dev
-npm run deploy
+curl -fsSL https://install.sijun-yang.com/<repo>/<file> | sh
 ```
 
-Before the repo is pushed to `main`, local Worker routes can use the local
-config through `CONFIG_JSON`:
+```powershell
+irm https://install.sijun-yang.com/<repo>/<file> | iex
+```
+
+특정 태그 설치:
 
 ```bash
-CONFIG_JSON="$(cat redirects.json)" npm run dev
+curl -fsSL "https://install.sijun-yang.com/<repo>/<file>?tag=vX.Y.Z" | sh
 ```
 
-Required GitHub secrets for deploy:
+```powershell
+irm "https://install.sijun-yang.com/<repo>/<file>?tag=vX.Y.Z" | iex
+```
+
+지원되는 주소 형식 예:
 
 ```text
-CLOUDFLARE_API_TOKEN
-CLOUDFLARE_ACCOUNT_ID
+https://install.sijun-yang.com/<repo>/<file>
+https://install.sijun-yang.com/<repo>/<file>?tag=vX.Y.Z
+https://install.sijun-yang.com/@<owner>/<repo>/<file>
+https://install.sijun-yang.com/@<owner>/<repo>/<file>?tag=vX.Y.Z
 ```
-
-Cloudflare Workers Builds can also deploy this repo directly. If using Workers
-Builds, exclude `redirects.json` from build watch paths so redirect table updates do
-not redeploy Worker code.

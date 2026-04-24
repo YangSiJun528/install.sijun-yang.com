@@ -8,13 +8,13 @@
     {
       "repo": "jungle-bell",
       "file": "jungle-bell.sh",
-      "ref": "main",
+      "ref": "latest",
       "path": "install/jungle-bell.sh"
     },
     {
       "repo": "jungle-bell",
       "file": "jungle-bell.ps1",
-      "ref": "main",
+      "ref": "latest",
       "path": "install/jungle-bell.ps1"
     }
   ]

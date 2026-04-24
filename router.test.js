@@ -4,6 +4,8 @@ import {
   buildRawGitHubUrl,
   handleRequest,
   parsePublicRoute,
+  parseVersionOverride,
+  resolveLatestReleaseTag,
   validateConfig,
 } from "./worker.js";
 
@@ -18,14 +20,14 @@ const config = {
     {
       repo: "jungle-bell",
       file: "jungle-bell.sh",
-      ref: "main",
+      ref: "latest",
       path: "install/jungle-bell.sh",
     },
     {
       owner: "cf",
       repo: "workers-sdk",
       file: "install.sh",
-      ref: "main",
+      ref: "latest",
       path: "tools/install.sh",
     },
   ],
@@ -33,6 +35,10 @@ const config = {
 
 const env = {
   CONFIG_JSON: JSON.stringify(config),
+  LATEST_TAGS_JSON: JSON.stringify({
+    "YangSiJun528/jungle-bell": "v0.2.5",
+    "cloudflare/workers-sdk": "v1.2.3",
+  }),
 };
 
 test("redirects default-owner repo/file routes", async () => {
@@ -44,7 +50,7 @@ test("redirects default-owner repo/file routes", async () => {
   assert.equal(response.status, 302);
   assert.equal(
     response.headers.get("Location"),
-    "https://raw.githubusercontent.com/YangSiJun528/jungle-bell/main/install/jungle-bell.sh",
+    "https://raw.githubusercontent.com/YangSiJun528/jungle-bell/v0.2.5/install/jungle-bell.sh",
   );
 });
 
@@ -57,7 +63,7 @@ test("redirects alias owner routes", async () => {
   assert.equal(response.status, 302);
   assert.equal(
     response.headers.get("Location"),
-    "https://raw.githubusercontent.com/cloudflare/workers-sdk/main/tools/install.sh",
+    "https://raw.githubusercontent.com/cloudflare/workers-sdk/v1.2.3/tools/install.sh",
   );
 });
 
@@ -81,8 +87,30 @@ test("ignores query parameters when resolving targets", async () => {
   assert.equal(response.status, 302);
   assert.equal(
     response.headers.get("Location"),
-    "https://raw.githubusercontent.com/YangSiJun528/jungle-bell/main/install/jungle-bell.sh",
+    "https://raw.githubusercontent.com/YangSiJun528/jungle-bell/v0.2.5/install/jungle-bell.sh",
   );
+});
+
+test("uses explicit tag query instead of latest", async () => {
+  const response = await handleRequest(
+    new Request("https://install.sijun-yang.com/jungle-bell/jungle-bell.sh?tag=v0.2.4"),
+    env,
+  );
+
+  assert.equal(response.status, 302);
+  assert.equal(
+    response.headers.get("Location"),
+    "https://raw.githubusercontent.com/YangSiJun528/jungle-bell/v0.2.4/install/jungle-bell.sh",
+  );
+});
+
+test("rejects invalid explicit versions", async () => {
+  const response = await handleRequest(
+    new Request("https://install.sijun-yang.com/jungle-bell/jungle-bell.sh?tag=main"),
+    env,
+  );
+
+  assert.equal(response.status, 400);
 });
 
 test("rejects unsupported methods", async () => {
@@ -150,6 +178,26 @@ test("parses public routes", () => {
   assert.deepEqual(parsePublicRoute("/jungle-bell/install/jungle-bell.sh"), {
     ok: false,
   });
+});
+
+test("parses version overrides", () => {
+  assert.deepEqual(parseVersionOverride(new URLSearchParams("")), {
+    ok: true,
+    tag: null,
+  });
+  assert.deepEqual(parseVersionOverride(new URLSearchParams("tag=v0.2.5")), {
+    ok: true,
+    tag: "v0.2.5",
+  });
+  assert.equal(parseVersionOverride(new URLSearchParams("tag=main")).ok, false);
+  assert.equal(
+    parseVersionOverride(new URLSearchParams("tag=v0.2.5&tag=v0.2.4")).ok,
+    false,
+  );
+});
+
+test("resolves configured latest tags", async () => {
+  assert.equal(await resolveLatestReleaseTag("YangSiJun528", "jungle-bell", env), "v0.2.5");
 });
 
 test("builds raw GitHub URLs with encoded path segments", () => {
