@@ -8,8 +8,10 @@ routes = [
   { pattern = "install.sijun-yang.com/*", zone_name = "sijun-yang.com" }
 ]
 
+[observability]
+enabled = true
+head_sampling_rate = 1
+
 [vars]
-CONFIG_URL = "https://raw.githubusercontent.com/YangSiJun528/install.sijun-yang.com/main/redirects.json"
-CONFIG_CACHE_TTL_SECONDS = "60"
 LATEST_TAG_CACHE_TTL_SECONDS = "300"
 REDIRECT_STATUS = "302"

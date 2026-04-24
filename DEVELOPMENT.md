@@ -14,11 +14,10 @@ npm run check
 
 ## 로컬 실행
 
-로컬에서는 아직 GitHub raw URL에 올라가지 않은 `redirects.json`을 바로 쓰기 위해
-`CONFIG_JSON`으로 설정을 넘긴다.
+Worker는 기본적으로 `redirects.json`을 배포 번들에 포함해서 사용한다.
 
 ```bash
-CONFIG_JSON="$(cat redirects.json)" npm run dev
+npm run dev
 ```
 
 ## 배포 dry-run
@@ -35,6 +34,7 @@ HOME=/tmp npx wrangler deploy --dry-run
 4. 기본 설치가 최신 릴리스 기준이어야 하면 `ref`를 `latest`로 둔다.
 5. `npm run check`를 실행한다.
 6. 변경사항을 커밋한다.
+7. `main`에 push해서 Worker를 다시 배포한다.
 
 예시:
 
@@ -54,6 +54,7 @@ HOME=/tmp npx wrangler deploy --dry-run
 - `tag` query만 명시 버전 선택에 사용한다.
 - `?tag=vX.Y.Z` 또는 `?tag=vX.Y.Z-prerelease` 형태만 허용한다.
 - `ref: "latest"`는 GitHub latest release tag를 조회한 뒤 그 tag 기준 파일로 redirect한다.
+- `/healthz`는 번들된 설정을 검증해서 `ok`를 반환한다.
 
 ## 배포
 
@@ -66,4 +67,4 @@ CLOUDFLARE_API_TOKEN
 CLOUDFLARE_ACCOUNT_ID
 ```
 
-`redirects.json`만 바뀐 경우에는 Worker 코드 배포 없이 런타임 설정 fetch로 반영된다.
+`redirects.json`은 Worker 배포 번들에 포함되므로, 설정 변경도 `main` push 이후 배포되어야 반영된다.

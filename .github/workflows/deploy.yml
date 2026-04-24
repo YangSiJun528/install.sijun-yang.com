@@ -5,6 +5,7 @@ on:
     branches:
       - main
     paths:
+      - "redirects.json"
       - "worker.js"
       - "router.test.js"
       - "validate-config.mjs"

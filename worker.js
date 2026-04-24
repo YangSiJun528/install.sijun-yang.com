@@ -1,9 +1,10 @@
-const DEFAULT_CONFIG_URL =
-  "https://raw.githubusercontent.com/YangSiJun528/install.sijun-yang.com/main/redirects.json";
+import bundledConfig from "./redirects.json" with { type: "json" };
+
 const DEFAULT_CONFIG_CACHE_TTL_SECONDS = 60;
 const DEFAULT_LATEST_TAG_CACHE_TTL_SECONDS = 300;
 const DEFAULT_REDIRECT_STATUS = 302;
 const LATEST_REF = "latest";
+const HEALTH_PATH = "/healthz";
 const ROUTE_OWNER_PREFIX = "@";
 const SUPPORTED_METHODS = new Set(["GET", "HEAD"]);
 
@@ -12,6 +13,8 @@ const REPO_RE = /^[A-Za-z0-9._-]{1,100}$/;
 const FILE_RE = /^[A-Za-z0-9._-]{1,160}$/;
 const REF_RE = /^[A-Za-z0-9._-]{1,120}$/;
 const TAG_RE = /^v\d+\.\d+\.\d+(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?$/;
+
+let validatedBundledConfig;
 
 export default {
   async fetch(request, env, ctx) {
@@ -28,6 +31,9 @@ export async function handleRequest(request, env = {}, ctx = undefined) {
   const url = new URL(request.url);
   if (url.pathname === "/") {
     return landingResponse(method);
+  }
+  if (url.pathname === HEALTH_PATH) {
+    return healthResponse(env, method);
   }
 
   const routeResult = parsePublicRoute(url.pathname);
@@ -72,9 +78,11 @@ export async function loadConfig(env = {}) {
     return parseConfigText(env.CONFIG_JSON, "CONFIG_JSON");
   }
 
-  const configUrl = typeof env.CONFIG_URL === "string" && env.CONFIG_URL.trim() !== ""
-    ? env.CONFIG_URL
-    : DEFAULT_CONFIG_URL;
+  if (typeof env.CONFIG_URL !== "string" || env.CONFIG_URL.trim() === "") {
+    return loadBundledConfig();
+  }
+
+  const configUrl = env.CONFIG_URL;
   const cacheTtl = configCacheTtl(env);
   const response = await fetch(configUrl, {
     headers: {
@@ -92,6 +100,11 @@ export async function loadConfig(env = {}) {
   }
 
   return parseConfigText(await response.text(), configUrl);
+}
+
+function loadBundledConfig() {
+  validatedBundledConfig ??= validateConfig(bundledConfig);
+  return validatedBundledConfig;
 }
 
 export function parseConfigText(text, source = "config") {
@@ -446,6 +459,7 @@ async function loadConfigForRequest(env, method) {
   try {
     return { ok: true, value: await loadConfig(env) };
   } catch (error) {
+    logWarning("configuration_unavailable", { error });
     return {
       ok: false,
       response: serviceUnavailable("Configuration unavailable", method),
@@ -460,10 +474,30 @@ async function resolveTargetForRequest(config, route, versionTag, env, method) {
       value: await resolveTarget(config, route, versionTag, env),
     };
   } catch (error) {
+    logWarning("target_unavailable", {
+      error,
+      owner: route.owner,
+      repo: route.repo,
+      file: route.file,
+      version_tag: versionTag,
+    });
     return {
       ok: false,
       response: serviceUnavailable("Target unavailable", method),
     };
+  }
+}
+
+async function healthResponse(env, method) {
+  try {
+    await loadConfig(env);
+    return textResponse("ok\n", {
+      method,
+      headers: { "Cache-Control": "no-store" },
+    });
+  } catch (error) {
+    logWarning("health_check_failed", { error });
+    return serviceUnavailable("Health check failed", method);
   }
 }
 
@@ -535,6 +569,28 @@ function withSecurityHeaders(headers) {
   };
 }
 
+function logWarning(event, details = {}) {
+  console.warn({
+    event,
+    ...logDetails(details),
+  });
+}
+
+function logDetails(details) {
+  const normalized = { ...details };
+  if (details.error !== undefined) {
+    normalized.error = errorMessage(details.error);
+  }
+  return normalized;
+}
+
+function errorMessage(error) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+}
+
 function landingText() {
   return [
     "install.sijun-yang.com",
@@ -542,6 +598,7 @@ function landingText() {
     "Use /<repo>/<file> for YangSiJun528 repos.",
     "Use /@<owner-or-alias>/<repo>/<file> for other owners.",
     "Use ?tag=vX.Y.Z for exact versions.",
+    "Use /healthz for health checks.",
     "",
     "Examples:",
     "  /jungle-bell/jungle-bell.sh",

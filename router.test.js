@@ -137,6 +137,33 @@ test("HEAD redirect has no body", async () => {
   assert.equal(await response.text(), "");
 });
 
+test("health check verifies config availability", async () => {
+  const response = await handleRequest(
+    new Request("https://install.sijun-yang.com/healthz"),
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("Cache-Control"), "no-store");
+  assert.equal(await response.text(), "ok\n");
+});
+
+test("health check reports unavailable config", async () => {
+  const originalWarn = console.warn;
+  console.warn = () => {};
+
+  try {
+    const response = await handleRequest(
+      new Request("https://install.sijun-yang.com/healthz"),
+      { CONFIG_JSON: "not json" },
+    );
+
+    assert.equal(response.status, 503);
+    assert.equal(await response.text(), "Health check failed\n");
+  } finally {
+    console.warn = originalWarn;
+  }
+});
+
 test("validates duplicate owner/repo/file entries", () => {
   assert.throws(
     () =>
