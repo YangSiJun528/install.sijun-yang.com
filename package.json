@@ -1,0 +1,16 @@
+{
+  "name": "install-sijun-yang-com",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "npm run validate:config && npm test",
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "test": "node --test router.test.js",
+    "validate:config": "node validate-config.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "^4.68.0"
+  }
+}

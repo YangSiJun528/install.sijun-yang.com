@@ -1,0 +1,14 @@
+name = "install-sijun-yang-com"
+main = "worker.js"
+compatibility_date = "2026-04-24"
+workers_dev = true
+preview_urls = true
+
+routes = [
+  { pattern = "install.sijun-yang.com/*", zone_name = "sijun-yang.com" }
+]
+
+[vars]
+CONFIG_URL = "https://raw.githubusercontent.com/YangSiJun528/install.sijun-yang.com/main/redirects.json"
+CONFIG_CACHE_TTL_SECONDS = "60"
+REDIRECT_STATUS = "302"
