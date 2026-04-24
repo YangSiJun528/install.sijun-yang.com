@@ -60,13 +60,8 @@ HOME=/tmp npx wrangler deploy --dry-run
 
 ## 배포
 
-`main`에 push하면 GitHub Actions가 Cloudflare Worker를 배포한다.
+이 repository는 Cloudflare에 직접 연동되어 있다. GitHub Actions는 사용하지 않는다.
 
-필요한 GitHub Secrets:
-
-```text
-CLOUDFLARE_API_TOKEN
-CLOUDFLARE_ACCOUNT_ID
-```
+Cloudflare 설정에서 build 단계에 `npm run check`가 연결되어 있고, 배포 단계에서 Worker deploy까지 수행한다. 따라서 `main`에 push하면 Cloudflare 쪽 pipeline이 검증과 배포를 처리한다.
 
 `redirects.json`은 Worker 배포 번들에 포함되므로, 설정 변경도 `main` push 이후 배포되어야 반영된다.
