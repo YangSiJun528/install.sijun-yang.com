@@ -11,10 +11,14 @@ test("shows project and route information on the landing page", async () => {
 
   assert.equal(response.status, 200);
   assert.equal(response.headers.get("Content-Type"), "text/plain; charset=utf-8");
-  assert.match(body, /Project: https:\/\/github\.com\/YangSiJun528\/jungle-bell/);
-  assert.match(body, /\/jungle-bell\.sh/);
-  assert.match(body, /\/jungle-bell\.ps1/);
-  assert.match(body, /\?tag=vX\.Y\.Z/);
+  assert.match(body, /Projects:/);
+  assert.match(body, /YangSiJun528\/jungle-bell/);
+  assert.match(body, /GitHub: https:\/\/github\.com\/YangSiJun528\/jungle-bell/);
+  assert.match(body, /https:\/\/install\.sijun-yang\.com\/jungle-bell\.sh/);
+  assert.match(body, /https:\/\/install\.sijun-yang\.com\/jungle-bell\.ps1/);
+  assert.match(body, /tag override: append \?tag=vX\.Y\.Z/);
+  assert.doesNotMatch(body, /GitHub Releases asset/);
+  assert.doesNotMatch(body, /Available routes/);
 });
 
 test("HEAD landing page has no body", async () => {
@@ -171,7 +175,6 @@ test("validates redirect config entries", () => {
         ref: "latest",
       },
       {
-        owner: "OtherOwner",
         repo: "jungle-bell",
         file: "jungle-bell.ps1",
         ref: "v1.2.3",
@@ -187,7 +190,7 @@ test("validates redirect config entries", () => {
       ref: "latest",
     },
     {
-      owner: "OtherOwner",
+      owner: "YangSiJun528",
       repo: "jungle-bell",
       file: "jungle-bell.ps1",
       ref: "v1.2.3",
@@ -230,6 +233,24 @@ test("rejects owner aliases in redirect config", () => {
         files: [],
       }),
     /owner_aliases is not supported/,
+  );
+});
+
+test("rejects per-file owners in redirect config", () => {
+  assert.throws(
+    () =>
+      validateConfig({
+        version: 1,
+        default_owner: "YangSiJun528",
+        files: [
+          {
+            owner: "OtherOwner",
+            repo: "jungle-bell",
+            file: "jungle-bell.sh",
+          },
+        ],
+      }),
+    /owner is not supported/,
   );
 });
 

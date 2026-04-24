@@ -33,10 +33,9 @@ HOME=/tmp npx wrangler deploy --dry-run
 1. `redirects.json`의 `files` 배열에 항목을 추가한다.
 2. `file`은 공개 URL의 파일명이며 GitHub Releases asset 이름이기도 하다.
 3. `repo`는 GitHub repository 이름이다.
-4. `owner`가 없으면 `default_owner`를 사용한다.
-5. `ref`가 없으면 `latest`로 간주한다. `ref`는 `latest` 또는 `vX.Y.Z` 형식의 release tag만 허용한다.
-6. `npm run check`를 실행한다.
-7. `main`에 push해서 Worker를 다시 배포한다.
+4. `ref`가 없으면 `latest`로 간주한다. `ref`는 `latest` 또는 `vX.Y.Z` 형식의 release tag만 허용한다.
+5. `npm run check`를 실행한다.
+6. `main`에 push해서 Worker를 다시 배포한다.
 
 예시:
 

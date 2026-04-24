@@ -118,10 +118,13 @@ function normalizeFileEntry(file, defaultOwner, index) {
   if (!isPlainObject(file)) {
     throw new Error(`config.files[${index}] must be an object`);
   }
+  if (Object.hasOwn(file, "owner")) {
+    throw new Error(`config.files[${index}].owner is not supported`);
+  }
 
   const ref = file.ref ?? DEFAULT_REF;
   const normalized = {
-    owner: file.owner ?? defaultOwner,
+    owner: defaultOwner,
     repo: file.repo,
     file: file.file,
     ref,
@@ -187,31 +190,32 @@ function landingResponse(config, method) {
 }
 
 function landingText(config) {
-  const firstFile = config.files[0];
-  const projectUrl = firstFile === undefined
-    ? "not configured"
-    : `https://github.com/${firstFile.owner}/${firstFile.repo}`;
-  const routes = config.files
-    .map((file) => `  /${file.file}  ->  ${file.owner}/${file.repo}@${file.ref}:${file.file}`)
-    .join("\n");
+  const projects = new Map();
+  for (const file of config.files) {
+    const key = `${file.owner}/${file.repo}`;
+    if (!projects.has(key)) {
+      projects.set(key, []);
+    }
+    projects.get(key).push(`  https://install.sijun-yang.com/${file.file}`);
+  }
+  const projectLines = [...projects]
+    .map(([repo, urls]) => [
+      repo,
+      `  GitHub: https://github.com/${repo}`,
+      ...urls,
+      "  tag override: append ?tag=vX.Y.Z",
+    ].join("\n"))
+    .join("\n\n");
 
   return `install.sijun-yang.com
 
-Project: ${projectUrl}
-
 Short install URLs for release bootstrap scripts.
 
-Install latest:
-  macOS:   curl -fsSL https://install.sijun-yang.com/jungle-bell.sh | sh
-  Windows: irm https://install.sijun-yang.com/jungle-bell.ps1 | iex
+Projects:
+${projectLines}
 
-Install a specific release tag:
-  macOS:   curl -fsSL 'https://install.sijun-yang.com/jungle-bell.sh?tag=vX.Y.Z' | sh
-  Windows: irm 'https://install.sijun-yang.com/jungle-bell.ps1?tag=vX.Y.Z' | iex
-
-Available routes:
-${routes}
-  /healthz  -> Worker health check
+Health:
+  https://install.sijun-yang.com/healthz
 `;
 }
 
