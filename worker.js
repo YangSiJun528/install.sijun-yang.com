@@ -5,6 +5,7 @@ const DEFAULT_LATEST_TAG_CACHE_TTL_SECONDS = 300;
 const DEFAULT_REDIRECT_STATUS = 302;
 const LATEST_REF = "latest";
 const ROUTE_OWNER_PREFIX = "@";
+const SUPPORTED_METHODS = new Set(["GET", "HEAD"]);
 
 const IDENTIFIER_RE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/;
 const REPO_RE = /^[A-Za-z0-9._-]{1,100}$/;
@@ -19,63 +20,51 @@ export default {
 };
 
 export async function handleRequest(request, env = {}, ctx = undefined) {
-  if (request.method !== "GET" && request.method !== "HEAD") {
-    return textResponse("Method Not Allowed\n", {
-      status: 405,
-      method: request.method,
-      headers: { Allow: "GET, HEAD" },
-    });
+  const method = request.method;
+  if (!SUPPORTED_METHODS.has(method)) {
+    return methodNotAllowed(method);
   }
 
   const url = new URL(request.url);
   if (url.pathname === "/") {
-    return textResponse(landingText(), {
-      method: request.method,
-      headers: { "Cache-Control": "public, max-age=300" },
-    });
+    return landingResponse(method);
   }
 
-  const route = parsePublicRoute(url.pathname);
-  if (!route.ok) {
-    return notFound(request.method);
+  const routeResult = parsePublicRoute(url.pathname);
+  if (!routeResult.ok) {
+    return notFound(method);
   }
+  const route = routeResult.value;
 
-  const versionOverride = parseVersionOverride(url.searchParams);
-  if (!versionOverride.ok) {
-    return textResponse(`${versionOverride.error}\n`, {
-      status: 400,
-      method: request.method,
-      headers: { "Cache-Control": "no-store" },
-    });
+  const versionResult = parseVersionOverride(url.searchParams);
+  if (!versionResult.ok) {
+    return badRequest(versionResult.error, method);
   }
+  const versionTag = versionResult.tag;
 
-  let config;
-  try {
-    config = await loadConfig(env);
-  } catch (error) {
-    return textResponse("Configuration unavailable\n", {
-      status: 503,
-      method: request.method,
-      headers: { "Cache-Control": "no-store" },
-    });
+  const configResult = await loadConfigForRequest(env, method);
+  if (!configResult.ok) {
+    return configResult.response;
   }
+  const config = configResult.value;
 
-  let target;
-  try {
-    target = await resolveTarget(config, route.value, versionOverride.tag, env);
-  } catch (error) {
-    return textResponse("Target unavailable\n", {
-      status: 503,
-      method: request.method,
-      headers: { "Cache-Control": "no-store" },
-    });
+  const targetResult = await resolveTargetForRequest(
+    config,
+    route,
+    versionTag,
+    env,
+    method,
+  );
+  if (!targetResult.ok) {
+    return targetResult.response;
   }
+  const target = targetResult.value;
 
   if (!target) {
-    return notFound(request.method);
+    return notFound(method);
   }
 
-  return redirectResponse(target, redirectStatus(env), request.method);
+  return redirectResponse(target, redirectStatus(env), method);
 }
 
 export async function loadConfig(env = {}) {
@@ -451,6 +440,62 @@ function redirectStatus(env) {
     return parsed;
   }
   return DEFAULT_REDIRECT_STATUS;
+}
+
+async function loadConfigForRequest(env, method) {
+  try {
+    return { ok: true, value: await loadConfig(env) };
+  } catch (error) {
+    return {
+      ok: false,
+      response: serviceUnavailable("Configuration unavailable", method),
+    };
+  }
+}
+
+async function resolveTargetForRequest(config, route, versionTag, env, method) {
+  try {
+    return {
+      ok: true,
+      value: await resolveTarget(config, route, versionTag, env),
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      response: serviceUnavailable("Target unavailable", method),
+    };
+  }
+}
+
+function landingResponse(method) {
+  return textResponse(landingText(), {
+    method,
+    headers: { "Cache-Control": "public, max-age=300" },
+  });
+}
+
+function badRequest(message, method) {
+  return textResponse(`${message}\n`, {
+    status: 400,
+    method,
+    headers: { "Cache-Control": "no-store" },
+  });
+}
+
+function methodNotAllowed(method) {
+  return textResponse("Method Not Allowed\n", {
+    status: 405,
+    method,
+    headers: { Allow: "GET, HEAD" },
+  });
+}
+
+function serviceUnavailable(message, method) {
+  return textResponse(`${message}\n`, {
+    status: 503,
+    method,
+    headers: { "Cache-Control": "no-store" },
+  });
 }
 
 function redirectResponse(location, status, method) {
