@@ -31,7 +31,7 @@ export async function handleRequest(request, env = {}, ctx = undefined) {
 
   const url = new URL(request.url);
   if (url.pathname === "/") {
-    return landingResponse(method);
+    return landingResponse(env, method);
   }
   if (url.pathname === HEALTH_PATH) {
     return healthResponse(env, method);
@@ -552,11 +552,17 @@ async function healthResponse(env, method) {
   }
 }
 
-function landingResponse(method) {
-  return textResponse(landingText(), {
-    method,
-    headers: { "Cache-Control": "public, max-age=300" },
-  });
+async function landingResponse(env, method) {
+  try {
+    const config = await loadConfig(env);
+    return textResponse(landingText(config), {
+      method,
+      headers: { "Cache-Control": "public, max-age=300" },
+    });
+  } catch (error) {
+    logWarning("landing_config_unavailable", { error });
+    return serviceUnavailable("Configuration unavailable", method);
+  }
 }
 
 function badRequest(message, method) {
@@ -642,7 +648,7 @@ function errorMessage(error) {
   return String(error);
 }
 
-function landingText() {
+function landingText(config) {
   return [
     "install.sijun-yang.com",
     "",
@@ -651,9 +657,32 @@ function landingText() {
     "Use ?tag=vX.Y.Z for exact versions.",
     "Use /healthz for health checks.",
     "",
-    "Examples:",
-    "  /jungle-bell/jungle-bell.sh",
-    "  /jungle-bell/jungle-bell.ps1",
+    "Available routes:",
+    ...availableRouteLines(config),
     "",
   ].join("\n");
+}
+
+function availableRouteLines(config) {
+  const lines = [];
+  const aliases = ownerAliasLookup(config);
+
+  for (const file of config.files) {
+    const ownerPrefix = file.owner === config.default_owner
+      ? ""
+      : `/${ROUTE_OWNER_PREFIX}${aliases[file.owner] ?? file.owner}`;
+    const route = `${ownerPrefix}/${file.repo}/${file.file}`;
+    const version = file.ref === LATEST_REF ? "latest" : file.ref;
+    lines.push(`  ${route}  ->  ${file.owner}/${file.repo}@${version}:${file.path}`);
+  }
+
+  return lines;
+}
+
+function ownerAliasLookup(config) {
+  const aliases = {};
+  for (const [alias, owner] of Object.entries(config.owner_aliases)) {
+    aliases[owner] ??= alias;
+  }
+  return aliases;
 }

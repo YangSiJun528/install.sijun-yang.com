@@ -41,6 +41,25 @@ const env = {
   }),
 };
 
+test("lists available routes on the landing page", async () => {
+  const response = await handleRequest(
+    new Request("https://install.sijun-yang.com/"),
+    env,
+  );
+  const body = await response.text();
+
+  assert.equal(response.status, 200);
+  assert.match(body, /Available routes:/);
+  assert.match(
+    body,
+    /\/jungle-bell\/jungle-bell\.sh  ->  YangSiJun528\/jungle-bell@latest:install\/jungle-bell\.sh/,
+  );
+  assert.match(
+    body,
+    /\/@cf\/workers-sdk\/install\.sh  ->  cloudflare\/workers-sdk@latest:tools\/install\.sh/,
+  );
+});
+
 test("redirects default-owner repo/file routes", async () => {
   const response = await handleRequest(
     new Request("https://install.sijun-yang.com/jungle-bell/jungle-bell.sh"),
