@@ -11,7 +11,3 @@ routes = [
 [observability]
 enabled = true
 head_sampling_rate = 1
-
-[vars]
-LATEST_TAG_CACHE_TTL_SECONDS = "300"
-REDIRECT_STATUS = "302"

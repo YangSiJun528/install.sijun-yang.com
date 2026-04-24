@@ -6,15 +6,17 @@
 npm install
 ```
 
-## 검증 - 테스트
+## 검증
 
 ```bash
 npm run check
 ```
 
+`npm run check`는 `redirects.json` 검증과 Worker 라우터 테스트를 함께 실행한다.
+
 ## 로컬 실행
 
-Worker는 기본적으로 `redirects.json`을 배포 번들에 포함해서 사용한다.
+Worker는 `redirects.json`을 배포 번들에 포함해서 사용한다.
 
 ```bash
 npm run dev
@@ -28,35 +30,34 @@ HOME=/tmp npx wrangler deploy --dry-run
 
 ## redirect 추가
 
-1. `redirects.json`에 항목을 추가한다.
-2. 공개 URL은 `/<repo>/<file>` 또는 `/@<owner>/<repo>/<file>` 형태로 유지한다.
-3. repo 내부 실제 파일 위치는 `path`에 적는다.
-4. 기본 설치가 최신 릴리스 기준이어야 하면 `ref`를 `latest`로 둔다.
-5. `npm run check`를 실행한다.
-6. 변경사항을 커밋한다.
+1. `redirects.json`의 `files` 배열에 항목을 추가한다.
+2. `file`은 공개 URL의 파일명이며 GitHub Releases asset 이름이기도 하다.
+3. `repo`는 GitHub repository 이름이다.
+4. `owner`가 없으면 `default_owner`를 사용한다.
+5. `ref`가 없으면 `latest`로 간주한다. `ref`는 `latest` 또는 `vX.Y.Z` 형식의 release tag만 허용한다.
+6. `npm run check`를 실행한다.
 7. `main`에 push해서 Worker를 다시 배포한다.
 
 예시:
 
 ```json
 {
-  "repo": "example-app",
-  "file": "install.sh",
-  "ref": "latest",
-  "path": "install/install.sh"
+  "repo": "jungle-bell",
+  "file": "jungle-bell.sh",
+  "ref": "latest"
 }
 ```
 
 ## 동작 정책
 
-- Worker는 등록된 `(owner, repo, file)` 조합만 redirect한다.
-- 요청자가 query parameter로 redirect 대상 URL을 바꿀 수 없다.
+- Worker는 `redirects.json`에 등록된 `file`만 `/<file>` 형태로 redirect한다.
 - `tag` query만 명시 버전 선택에 사용한다.
-- `?tag=vX.Y.Z` 또는 `?tag=vX.Y.Z-prerelease` 형태만 허용한다.
-- `ref: "latest"`는 GitHub latest release tag를 조회한 뒤 그 tag 기준 파일로 redirect한다.
-- latest release tag는 Worker isolate 메모리와 Cloudflare fetch cache로 캐시한다.
-- stale cache revalidation은 GitHub `ETag`/`Last-Modified` 기반 conditional GET을 사용한다.
-- `/healthz`는 번들된 설정을 검증해서 `ok`를 반환한다.
+- `?tag=vX.Y.Z` 또는 prerelease tag만 허용한다.
+- `tag`가 없거나 `tag=latest`이면 GitHub의 `/releases/latest/download/<file>`로 redirect한다.
+- 명시 tag는 `/releases/download/<tag>/<file>`로 redirect한다.
+- GitHub API 호출, latest tag resolve, Worker-side cache는 사용하지 않는다.
+- `/`는 프로젝트 링크와 사용 가능한 경로를 보여준다.
+- `/healthz`는 번들된 설정이 유효하면 `ok`를 반환한다.
 
 ## 배포
 
@@ -68,13 +69,5 @@ HOME=/tmp npx wrangler deploy --dry-run
 CLOUDFLARE_API_TOKEN
 CLOUDFLARE_ACCOUNT_ID
 ```
-
-선택 Secret:
-
-```text
-GITHUB_TOKEN
-```
-
-`GITHUB_TOKEN`을 설정하면 GitHub API rate limit이 더 넉넉해지고, unchanged release에 대한 conditional GET `304` 응답이 primary rate limit에 덜 민감해진다.
 
 `redirects.json`은 Worker 배포 번들에 포함되므로, 설정 변경도 `main` push 이후 배포되어야 반영된다.

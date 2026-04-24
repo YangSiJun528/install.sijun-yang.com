@@ -1,344 +1,251 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-  buildRawGitHubUrl,
-  handleRequest,
-  parsePublicRoute,
-  parseVersionOverride,
-  resolveLatestReleaseTag,
-  validateConfig,
-} from "./worker.js";
+import { handleRequest, parseConfigText, validateConfig } from "./worker.js";
 
-const config = {
-  version: 1,
-  default_owner: "YangSiJun528",
-  owner_aliases: {
-    me: "YangSiJun528",
-    cf: "cloudflare",
-  },
-  files: [
-    {
-      repo: "jungle-bell",
-      file: "jungle-bell.sh",
-      ref: "latest",
-      path: "install/jungle-bell.sh",
-    },
-    {
-      owner: "cf",
-      repo: "workers-sdk",
-      file: "install.sh",
-      ref: "latest",
-      path: "tools/install.sh",
-    },
-  ],
-};
+const origin = "https://install.sijun-yang.com";
+const releases = "https://github.com/YangSiJun528/jungle-bell/releases";
 
-const env = {
-  CONFIG_JSON: JSON.stringify(config),
-  LATEST_TAGS_JSON: JSON.stringify({
-    "YangSiJun528/jungle-bell": "v0.2.5",
-    "cloudflare/workers-sdk": "v1.2.3",
-  }),
-};
-
-test("lists available routes on the landing page", async () => {
-  const response = await handleRequest(
-    new Request("https://install.sijun-yang.com/"),
-    env,
-  );
+test("shows project and route information on the landing page", async () => {
+  const response = await handleRequest(new Request(`${origin}/`));
   const body = await response.text();
 
   assert.equal(response.status, 200);
-  assert.match(body, /Available routes:/);
-  assert.match(
-    body,
-    /\/jungle-bell\/jungle-bell\.sh  ->  YangSiJun528\/jungle-bell@latest:install\/jungle-bell\.sh/,
-  );
-  assert.match(
-    body,
-    /\/@cf\/workers-sdk\/install\.sh  ->  cloudflare\/workers-sdk@latest:tools\/install\.sh/,
-  );
+  assert.equal(response.headers.get("Content-Type"), "text/plain; charset=utf-8");
+  assert.match(body, /Project: https:\/\/github\.com\/YangSiJun528\/jungle-bell/);
+  assert.match(body, /\/jungle-bell\.sh/);
+  assert.match(body, /\/jungle-bell\.ps1/);
+  assert.match(body, /\?tag=vX\.Y\.Z/);
 });
 
-test("redirects default-owner repo/file routes", async () => {
+test("HEAD landing page has no body", async () => {
   const response = await handleRequest(
-    new Request("https://install.sijun-yang.com/jungle-bell/jungle-bell.sh"),
-    env,
+    new Request(`${origin}/`, { method: "HEAD" }),
   );
 
-  assert.equal(response.status, 302);
-  assert.equal(
-    response.headers.get("Location"),
-    "https://raw.githubusercontent.com/YangSiJun528/jungle-bell/v0.2.5/install/jungle-bell.sh",
-  );
-});
-
-test("redirects alias owner routes", async () => {
-  const response = await handleRequest(
-    new Request("https://install.sijun-yang.com/@cf/workers-sdk/install.sh"),
-    env,
-  );
-
-  assert.equal(response.status, 302);
-  assert.equal(
-    response.headers.get("Location"),
-    "https://raw.githubusercontent.com/cloudflare/workers-sdk/v1.2.3/tools/install.sh",
-  );
-});
-
-test("does not expose internal file paths as public routes", async () => {
-  const response = await handleRequest(
-    new Request("https://install.sijun-yang.com/jungle-bell/install/jungle-bell.sh"),
-    env,
-  );
-
-  assert.equal(response.status, 404);
-});
-
-test("ignores query parameters when resolving targets", async () => {
-  const response = await handleRequest(
-    new Request(
-      "https://install.sijun-yang.com/jungle-bell/jungle-bell.sh?target=https://evil.example",
-    ),
-    env,
-  );
-
-  assert.equal(response.status, 302);
-  assert.equal(
-    response.headers.get("Location"),
-    "https://raw.githubusercontent.com/YangSiJun528/jungle-bell/v0.2.5/install/jungle-bell.sh",
-  );
-});
-
-test("uses explicit tag query instead of latest", async () => {
-  const response = await handleRequest(
-    new Request("https://install.sijun-yang.com/jungle-bell/jungle-bell.sh?tag=v0.2.4"),
-    env,
-  );
-
-  assert.equal(response.status, 302);
-  assert.equal(
-    response.headers.get("Location"),
-    "https://raw.githubusercontent.com/YangSiJun528/jungle-bell/v0.2.4/install/jungle-bell.sh",
-  );
-});
-
-test("rejects invalid explicit versions", async () => {
-  const response = await handleRequest(
-    new Request("https://install.sijun-yang.com/jungle-bell/jungle-bell.sh?tag=main"),
-    env,
-  );
-
-  assert.equal(response.status, 400);
-});
-
-test("rejects unsupported methods", async () => {
-  const response = await handleRequest(
-    new Request("https://install.sijun-yang.com/jungle-bell/jungle-bell.sh", {
-      method: "POST",
-    }),
-    env,
-  );
-
-  assert.equal(response.status, 405);
-  assert.equal(response.headers.get("Allow"), "GET, HEAD");
-});
-
-test("HEAD redirect has no body", async () => {
-  const response = await handleRequest(
-    new Request("https://install.sijun-yang.com/jungle-bell/jungle-bell.sh", {
-      method: "HEAD",
-    }),
-    env,
-  );
-
-  assert.equal(response.status, 302);
+  assert.equal(response.status, 200);
   assert.equal(await response.text(), "");
 });
 
-test("health check verifies config availability", async () => {
-  const response = await handleRequest(
-    new Request("https://install.sijun-yang.com/healthz"),
-  );
+test("health check returns ok", async () => {
+  const response = await handleRequest(new Request(`${origin}/healthz`));
 
   assert.equal(response.status, 200);
   assert.equal(response.headers.get("Cache-Control"), "no-store");
   assert.equal(await response.text(), "ok\n");
 });
 
-test("health check reports unavailable config", async () => {
-  const originalWarn = console.warn;
-  console.warn = () => {};
+test("HEAD health check has no body", async () => {
+  const response = await handleRequest(
+    new Request(`${origin}/healthz`, { method: "HEAD" }),
+  );
 
-  try {
-    const response = await handleRequest(
-      new Request("https://install.sijun-yang.com/healthz"),
-      { CONFIG_JSON: "not json" },
-    );
-
-    assert.equal(response.status, 503);
-    assert.equal(await response.text(), "Health check failed\n");
-  } finally {
-    console.warn = originalWarn;
-  }
+  assert.equal(response.status, 200);
+  assert.equal(await response.text(), "");
 });
 
-test("validates duplicate owner/repo/file entries", () => {
-  assert.throws(
-    () =>
-      validateConfig({
-        ...config,
-        files: [config.files[0], config.files[0]],
-      }),
-    /duplicate file entry/,
+test("redirects macOS script to GitHub latest release asset", async () => {
+  const response = await handleRequest(new Request(`${origin}/jungle-bell.sh`));
+
+  assert.equal(response.status, 302);
+  assert.equal(
+    response.headers.get("Location"),
+    `${releases}/latest/download/jungle-bell.sh`,
   );
 });
 
-test("requires visible file to match the configured path basename", () => {
+test("redirects Windows script to GitHub latest release asset", async () => {
+  const response = await handleRequest(new Request(`${origin}/jungle-bell.ps1`));
+
+  assert.equal(response.status, 302);
+  assert.equal(
+    response.headers.get("Location"),
+    `${releases}/latest/download/jungle-bell.ps1`,
+  );
+});
+
+test("treats tag=latest as the latest release asset", async () => {
+  const response = await handleRequest(
+    new Request(`${origin}/jungle-bell.sh?tag=latest`),
+  );
+
+  assert.equal(response.status, 302);
+  assert.equal(
+    response.headers.get("Location"),
+    `${releases}/latest/download/jungle-bell.sh`,
+  );
+});
+
+test("redirects explicit semver tags to exact release assets", async () => {
+  const response = await handleRequest(
+    new Request(`${origin}/jungle-bell.sh?tag=v1.2.3`),
+  );
+
+  assert.equal(response.status, 302);
+  assert.equal(
+    response.headers.get("Location"),
+    `${releases}/download/v1.2.3/jungle-bell.sh`,
+  );
+});
+
+test("redirects prerelease tags to exact release assets", async () => {
+  const response = await handleRequest(
+    new Request(`${origin}/jungle-bell.ps1?tag=v1.2.3-beta.1`),
+  );
+
+  assert.equal(response.status, 302);
+  assert.equal(
+    response.headers.get("Location"),
+    `${releases}/download/v1.2.3-beta.1/jungle-bell.ps1`,
+  );
+});
+
+test("HEAD redirect has no body", async () => {
+  const response = await handleRequest(
+    new Request(`${origin}/jungle-bell.sh`, { method: "HEAD" }),
+  );
+
+  assert.equal(response.status, 302);
+  assert.equal(
+    response.headers.get("Location"),
+    `${releases}/latest/download/jungle-bell.sh`,
+  );
+  assert.equal(await response.text(), "");
+});
+
+test("rejects invalid tags as not found", async () => {
+  const response = await handleRequest(
+    new Request(`${origin}/jungle-bell.sh?tag=main`),
+  );
+
+  assert.equal(response.status, 404);
+});
+
+test("rejects duplicate tag parameters as not found", async () => {
+  const response = await handleRequest(
+    new Request(`${origin}/jungle-bell.sh?tag=v1.2.3&tag=v1.2.4`),
+  );
+
+  assert.equal(response.status, 404);
+});
+
+test("does not support path-based versions", async () => {
+  const response = await handleRequest(
+    new Request(`${origin}/v1.2.3/jungle-bell.sh`),
+  );
+
+  assert.equal(response.status, 404);
+});
+
+test("does not support legacy repo/file routes", async () => {
+  const response = await handleRequest(
+    new Request(`${origin}/jungle-bell/jungle-bell.sh`),
+  );
+
+  assert.equal(response.status, 404);
+});
+
+test("rejects unknown assets", async () => {
+  const response = await handleRequest(new Request(`${origin}/install.sh`));
+
+  assert.equal(response.status, 404);
+});
+
+test("rejects unsupported methods", async () => {
+  const response = await handleRequest(
+    new Request(`${origin}/jungle-bell.sh`, { method: "POST" }),
+  );
+
+  assert.equal(response.status, 405);
+  assert.equal(response.headers.get("Allow"), "GET, HEAD");
+  assert.equal(await response.text(), "Method Not Allowed\n");
+});
+
+test("validates redirect config entries", () => {
+  const config = validateConfig({
+    version: 1,
+    default_owner: "YangSiJun528",
+    files: [
+      {
+        repo: "jungle-bell",
+        file: "jungle-bell.sh",
+        ref: "latest",
+      },
+      {
+        owner: "OtherOwner",
+        repo: "jungle-bell",
+        file: "jungle-bell.ps1",
+        ref: "v1.2.3",
+      },
+    ],
+  });
+
+  assert.deepEqual(config.files, [
+    {
+      owner: "YangSiJun528",
+      repo: "jungle-bell",
+      file: "jungle-bell.sh",
+      ref: "latest",
+    },
+    {
+      owner: "OtherOwner",
+      repo: "jungle-bell",
+      file: "jungle-bell.ps1",
+      ref: "v1.2.3",
+    },
+  ]);
+});
+
+test("rejects duplicate public file routes in redirect config", () => {
   assert.throws(
     () =>
       validateConfig({
-        ...config,
+        version: 1,
+        default_owner: "YangSiJun528",
         files: [
           {
             repo: "jungle-bell",
-            file: "install.sh",
-            ref: "main",
-            path: "install/jungle-bell.sh",
+            file: "jungle-bell.sh",
+            ref: "latest",
+          },
+          {
+            repo: "other-repo",
+            file: "jungle-bell.sh",
+            ref: "latest",
           },
         ],
       }),
-    /file must match the path basename/,
+    /duplicate public file route/,
   );
 });
 
-test("parses public routes", () => {
-  assert.deepEqual(parsePublicRoute("/jungle-bell/jungle-bell.sh"), {
-    ok: true,
-    value: { owner: null, repo: "jungle-bell", file: "jungle-bell.sh" },
-  });
-  assert.deepEqual(parsePublicRoute("/@cf/workers-sdk/install.sh"), {
-    ok: true,
-    value: { owner: "cf", repo: "workers-sdk", file: "install.sh" },
-  });
-  assert.deepEqual(parsePublicRoute("/jungle-bell/install/jungle-bell.sh"), {
-    ok: false,
-  });
-});
-
-test("parses version overrides", () => {
-  assert.deepEqual(parseVersionOverride(new URLSearchParams("")), {
-    ok: true,
-    tag: null,
-  });
-  assert.deepEqual(parseVersionOverride(new URLSearchParams("tag=v0.2.5")), {
-    ok: true,
-    tag: "v0.2.5",
-  });
-  assert.equal(parseVersionOverride(new URLSearchParams("tag=main")).ok, false);
-  assert.equal(
-    parseVersionOverride(new URLSearchParams("tag=v0.2.5&tag=v0.2.4")).ok,
-    false,
+test("rejects owner aliases in redirect config", () => {
+  assert.throws(
+    () =>
+      validateConfig({
+        version: 1,
+        default_owner: "YangSiJun528",
+        owner_aliases: {
+          me: "YangSiJun528",
+        },
+        files: [],
+      }),
+    /owner_aliases is not supported/,
   );
 });
 
-test("resolves configured latest tags", async () => {
-  assert.equal(await resolveLatestReleaseTag("YangSiJun528", "jungle-bell", env), "v0.2.5");
-});
-
-test("caches fetched latest release tags in memory", async () => {
-  const originalFetch = globalThis.fetch;
-  const originalNow = Date.now;
-  let now = 1_000;
-  const requests = [];
-  Date.now = () => now;
-  globalThis.fetch = async (url, options) => {
-    requests.push({ url, options });
-    return latestReleaseResponse("v1.2.3", {
-      etag: '"latest-cache-etag"',
-      lastModified: "Tue, 14 Apr 2026 02:24:26 GMT",
-    });
-  };
-
-  try {
-    const cacheEnv = { LATEST_TAG_CACHE_TTL_SECONDS: "30" };
-
-    assert.equal(await resolveLatestReleaseTag("octocat", "cache-demo", cacheEnv), "v1.2.3");
-    now += 29_000;
-    assert.equal(await resolveLatestReleaseTag("octocat", "cache-demo", cacheEnv), "v1.2.3");
-
-    assert.equal(requests.length, 1);
-    assert.equal(
-      requests[0].url,
-      "https://api.github.com/repos/octocat/cache-demo/releases/latest",
-    );
-  } finally {
-    globalThis.fetch = originalFetch;
-    Date.now = originalNow;
-  }
-});
-
-test("revalidates stale latest release tags conditionally", async () => {
-  const originalFetch = globalThis.fetch;
-  const originalNow = Date.now;
-  let now = 1_000;
-  const requests = [];
-  Date.now = () => now;
-  globalThis.fetch = async (url, options) => {
-    requests.push({ url, options });
-    if (requests.length === 1) {
-      return latestReleaseResponse("v2.0.0", {
-        etag: '"latest-revalidate-etag"',
-        lastModified: "Tue, 14 Apr 2026 02:24:26 GMT",
-      });
-    }
-    return new Response(null, {
-      status: 304,
-      headers: {
-        etag: '"latest-revalidate-etag"',
-        "last-modified": "Tue, 14 Apr 2026 02:24:26 GMT",
-      },
-    });
-  };
-
-  try {
-    const cacheEnv = {
-      GITHUB_TOKEN: "token",
-      LATEST_TAG_CACHE_TTL_SECONDS: "30",
-    };
-
-    assert.equal(await resolveLatestReleaseTag("octocat", "revalidate-demo", cacheEnv), "v2.0.0");
-    now += 31_000;
-    assert.equal(await resolveLatestReleaseTag("octocat", "revalidate-demo", cacheEnv), "v2.0.0");
-
-    assert.equal(requests.length, 2);
-    assert.equal(requests[1].options.headers["If-None-Match"], '"latest-revalidate-etag"');
-    assert.equal(requests[1].options.headers.Authorization, "Bearer token");
-  } finally {
-    globalThis.fetch = originalFetch;
-    Date.now = originalNow;
-  }
-});
-
-test("builds raw GitHub URLs with encoded path segments", () => {
-  assert.equal(
-    buildRawGitHubUrl({
-      owner: "YangSiJun528",
-      repo: "jungle-bell",
-      ref: "v0.2.5",
-      path: "install/jungle-bell.sh",
+test("parses redirect config text", () => {
+  const config = parseConfigText(
+    JSON.stringify({
+      version: 1,
+      default_owner: "YangSiJun528",
+      files: [
+        {
+          repo: "jungle-bell",
+          file: "jungle-bell.sh",
+        },
+      ],
     }),
-    "https://raw.githubusercontent.com/YangSiJun528/jungle-bell/v0.2.5/install/jungle-bell.sh",
   );
-});
 
-function latestReleaseResponse(tagName, { etag, lastModified }) {
-  return new Response(JSON.stringify({ tag_name: tagName }), {
-    status: 200,
-    headers: {
-      etag,
-      "last-modified": lastModified,
-      "content-type": "application/json",
-    },
-  });
-}
+  assert.equal(config.files[0].ref, "latest");
+});

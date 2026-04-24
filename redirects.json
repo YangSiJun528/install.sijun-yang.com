@@ -1,21 +1,16 @@
 {
   "version": 1,
   "default_owner": "YangSiJun528",
-  "owner_aliases": {
-    "me": "YangSiJun528"
-  },
   "files": [
     {
       "repo": "jungle-bell",
       "file": "jungle-bell.sh",
-      "ref": "latest",
-      "path": "install/jungle-bell.sh"
+      "ref": "latest"
     },
     {
       "repo": "jungle-bell",
       "file": "jungle-bell.ps1",
-      "ref": "latest",
-      "path": "install/jungle-bell.ps1"
+      "ref": "latest"
     }
   ]
 }
