@@ -11,6 +11,10 @@ test("shows project and route information on the landing page", async () => {
 
   assert.equal(response.status, 200);
   assert.equal(response.headers.get("Content-Type"), "text/plain; charset=utf-8");
+  assert.match(
+    body,
+    /^GitHub: https:\/\/github\.com\/YangSiJun528\/install\.sijun-yang\.com/,
+  );
   assert.match(body, /Projects:/);
   assert.match(body, /YangSiJun528\/jungle-bell/);
   assert.match(body, /GitHub: https:\/\/github\.com\/YangSiJun528\/jungle-bell/);

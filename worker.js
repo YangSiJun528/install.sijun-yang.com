@@ -2,6 +2,7 @@ import bundledConfig from "./redirects.json" with { type: "json" };
 
 const DEFAULT_REF = "latest";
 const HEALTH_PATH = "/healthz";
+const PROJECT_URL = "https://github.com/YangSiJun528/install.sijun-yang.com";
 const SUPPORTED_METHODS = new Set(["GET", "HEAD"]);
 
 const IDENTIFIER_RE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/;
@@ -207,7 +208,9 @@ function landingText(config) {
     ].join("\n"))
     .join("\n\n");
 
-  return `install.sijun-yang.com
+  return `GitHub: ${PROJECT_URL}
+
+install.sijun-yang.com
 
 Short install URLs for release bootstrap scripts.
 
