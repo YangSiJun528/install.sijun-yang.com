@@ -1,305 +1,98 @@
-import bundledConfig from "./redirects.json" with { type: "json" };
+import { Hono } from "hono/tiny";
+import { parseTemplate } from "url-template";
+import redirects from "./redirects.json" with { type: "json" };
 
-const DEFAULT_REF = "latest";
-const HEALTH_PATH = "/healthz";
-const PROJECT_URL = "https://github.com/YangSiJun528/install.sijun-yang.com";
-const SUPPORTED_METHODS = new Set(["GET", "HEAD"]);
+const PLACEHOLDER = /\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
 
-const IDENTIFIER_RE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/;
-const REPO_RE = /^[A-Za-z0-9._-]{1,100}$/;
-const FILE_RE = /^[A-Za-z0-9._-]{1,160}$/;
-const TAG_RE = /^v\d+\.\d+\.\d+(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?$/;
+export function createApp(config = redirects) {
+  const app = new Hono();
 
-let validatedBundledConfig;
+  app.get("/healthz", (c) => {
+    c.header("Cache-Control", "no-store");
+    return c.text("ok\n");
+  });
 
-export default {
-  async fetch(request) {
-    return handleRequest(request);
-  },
-};
-
-export async function handleRequest(request) {
-  const method = request.method;
-  if (!SUPPORTED_METHODS.has(method)) {
-    return methodNotAllowed(method);
-  }
-
-  let config;
-  try {
-    config = loadConfig();
-  } catch (error) {
-    console.warn({
-      event: "configuration_unavailable",
-      error: error instanceof Error ? error.message : String(error),
+  app.get("/info", (c) => {
+    c.header("Cache-Control", "no-store");
+    return c.json({
+      endpoints: {
+        "/healthz": "Health check",
+        "/info": "Available routes",
+      },
+      redirects: config,
     });
-    return textResponse("Configuration unavailable\n", {
-      status: 503,
-      method,
-      headers: { "Cache-Control": "no-store" },
-    });
+  });
+
+  for (const redirect of compileRedirects(config)) {
+    registerRedirect(app, redirect);
   }
 
-  const url = new URL(request.url);
-  if (url.pathname === "/") {
-    return landingResponse(config, method);
-  }
-  if (url.pathname === HEALTH_PATH) {
-    return textResponse("ok\n", {
-      method,
-      headers: { "Cache-Control": "no-store" },
-    });
-  }
-
-  const file = findFileForPath(config, url.pathname);
-  if (file === null) {
-    return notFound(method);
-  }
-
-  const ref = parseRef(url.searchParams, file.ref);
-  if (ref === null) {
-    return notFound(method);
-  }
-
-  return redirectResponse(releaseAssetUrl(file, ref), method);
+  return app;
 }
 
-export function loadConfig() {
-  validatedBundledConfig ??= validateConfig(bundledConfig);
-  return validatedBundledConfig;
+function registerRedirect(app, redirect) {
+  app.get(redirect.route, (c) => handleRedirect(c, redirect));
 }
 
-export function parseConfigText(text, source = "config") {
-  let parsed;
-  try {
-    parsed = JSON.parse(text);
-  } catch (error) {
-    throw new Error(`${source}: invalid JSON`);
+function handleRedirect(c, redirect) {
+  const destination = resolveRedirect(
+    redirect,
+    c.req.param(),
+    c.req.queries(),
+  );
+  if (!destination) {
+    return c.text("Bad Request\n", 400);
   }
 
-  return validateConfig(parsed);
+  c.header("Cache-Control", "no-store");
+  return c.redirect(destination, 302);
 }
 
-export function validateConfig(config) {
-  if (!isPlainObject(config)) {
-    throw new Error("config must be an object");
-  }
-  if (config.version !== 1) {
-    throw new Error("config.version must be 1");
-  }
-  if (!isValidOwner(config.default_owner)) {
-    throw new Error("config.default_owner is invalid");
-  }
-  if (Object.hasOwn(config, "owner_aliases")) {
-    throw new Error("config.owner_aliases is not supported");
-  }
+export function compileRedirects(config) {
+  return Object.entries(config)
+    .map(([path, value]) => {
+      const { url, defaults = {} } =
+        typeof value === "string" ? { url: value } : value;
+      const pathNames = parsePlaceholderNames(path);
+      const urlNames = [...new Set(parsePlaceholderNames(url))];
 
-  if (!Array.isArray(config.files)) {
-    throw new Error("config.files must be an array");
-  }
+      return {
+        route: path.replace(PLACEHOLDER, ":$1"),
+        template: parseTemplate(url),
+        defaults,
+        queryNames: urlNames.filter((name) => !pathNames.includes(name)),
+        urlNames,
+        pathParamCount: pathNames.length,
+      };
+    })
+    .sort(
+      (left, right) =>
+        left.pathParamCount - right.pathParamCount ||
+        right.route.length - left.route.length,
+    );
+}
 
-  const files = [];
-  const publicRoutes = new Set();
-  for (const [index, file] of config.files.entries()) {
-    const normalized = normalizeFileEntry(file, config.default_owner, index);
-    if (publicRoutes.has(normalized.file)) {
-      throw new Error(`duplicate public file route: ${normalized.file}`);
+export function resolveRedirect(redirect, path, query) {
+  for (const [name, values] of Object.entries(query)) {
+    if (!redirect.queryNames.includes(name) || values.length !== 1) {
+      return null;
     }
-    publicRoutes.add(normalized.file);
-    files.push(normalized);
   }
 
-  return {
-    version: 1,
-    default_owner: config.default_owner,
-    files,
-  };
-}
-
-function normalizeFileEntry(file, defaultOwner, index) {
-  if (!isPlainObject(file)) {
-    throw new Error(`config.files[${index}] must be an object`);
-  }
-  if (Object.hasOwn(file, "owner")) {
-    throw new Error(`config.files[${index}].owner is not supported`);
+  const values = { ...redirect.defaults, ...path };
+  for (const [name, [value]] of Object.entries(query)) {
+    values[name] = value;
   }
 
-  const ref = file.ref ?? DEFAULT_REF;
-  const normalized = {
-    owner: defaultOwner,
-    repo: file.repo,
-    file: file.file,
-    ref,
-  };
-
-  if (!isValidOwner(normalized.owner)) {
-    throw new Error(`config.files[${index}].owner is invalid`);
-  }
-  if (!isValidRepo(normalized.repo)) {
-    throw new Error(`config.files[${index}].repo is invalid`);
-  }
-  if (!isValidFileName(normalized.file)) {
-    throw new Error(`config.files[${index}].file is invalid`);
-  }
-  if (!isValidRef(normalized.ref)) {
-    throw new Error(`config.files[${index}].ref is invalid`);
-  }
-
-  return normalized;
-}
-
-function findFileForPath(config, pathname) {
-  const segments = pathname.split("/").filter(Boolean);
-  if (segments.length !== 1) {
+  if (redirect.urlNames.some((name) => !Object.hasOwn(values, name))) {
     return null;
   }
 
-  const requestedFile = segments[0];
-  return config.files.find((file) => file.file === requestedFile) ?? null;
+  return redirect.template.expand(values);
 }
 
-function parseRef(searchParams, defaultRef) {
-  const tags = searchParams.getAll("tag");
-  if (tags.length > 1) {
-    return null;
-  }
-  if (tags.length === 0 || tags[0] === "") {
-    return defaultRef;
-  }
-  if (tags[0] === DEFAULT_REF) {
-    return DEFAULT_REF;
-  }
-
-  const tag = tags[0];
-  return TAG_RE.test(tag) ? tag : null;
+function parsePlaceholderNames(value) {
+  return [...value.matchAll(PLACEHOLDER)].map((match) => match[1]);
 }
 
-function releaseAssetUrl(file, ref) {
-  const releasesUrl = `https://github.com/${encodeURIComponent(file.owner)}/${encodeURIComponent(file.repo)}/releases`;
-  const asset = encodeURIComponent(file.file);
-  if (ref === DEFAULT_REF) {
-    return `${releasesUrl}/latest/download/${asset}`;
-  }
-
-  return `${releasesUrl}/download/${encodeURIComponent(ref)}/${asset}`;
-}
-
-function landingResponse(config, method) {
-  return textResponse(landingText(config), {
-    method,
-    headers: { "Cache-Control": "public, max-age=300" },
-  });
-}
-
-function landingText(config) {
-  const projects = new Map();
-  for (const file of config.files) {
-    const key = `${file.owner}/${file.repo}`;
-    if (!projects.has(key)) {
-      projects.set(key, []);
-    }
-    projects.get(key).push(`  https://install.sijun-yang.com/${file.file}`);
-  }
-  const projectLines = [...projects]
-    .map(([repo, urls]) => [
-      repo,
-      `  GitHub: https://github.com/${repo}`,
-      ...urls,
-      "  tag override: append ?tag=vX.Y.Z",
-    ].join("\n"))
-    .join("\n\n");
-
-  return `GitHub: ${PROJECT_URL}
-
-install.sijun-yang.com
-
-Short install URLs for release bootstrap scripts.
-
-Projects:
-${projectLines}
-
-Health:
-  https://install.sijun-yang.com/healthz
-`;
-}
-
-function methodNotAllowed(method) {
-  return textResponse("Method Not Allowed\n", {
-    status: 405,
-    method,
-    headers: {
-      Allow: "GET, HEAD",
-      "Cache-Control": "no-store",
-    },
-  });
-}
-
-function redirectResponse(location, method) {
-  return new Response(method === "HEAD" ? null : "", {
-    status: 302,
-    headers: withSecurityHeaders({
-      Location: location,
-      "Cache-Control": "no-store",
-    }),
-  });
-}
-
-function notFound(method) {
-  return textResponse("Not Found\n", {
-    status: 404,
-    method,
-    headers: { "Cache-Control": "no-store" },
-  });
-}
-
-function textResponse(body, options = {}) {
-  const status = options.status ?? 200;
-  return new Response(options.method === "HEAD" ? null : body, {
-    status,
-    headers: withSecurityHeaders({
-      "Content-Type": "text/plain; charset=utf-8",
-      ...options.headers,
-    }),
-  });
-}
-
-function withSecurityHeaders(headers) {
-  return {
-    "Referrer-Policy": "no-referrer",
-    "X-Content-Type-Options": "nosniff",
-    ...headers,
-  };
-}
-
-function isPlainObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function isValidOwner(value) {
-  return typeof value === "string" && IDENTIFIER_RE.test(value);
-}
-
-function isValidRepo(value) {
-  return (
-    typeof value === "string" &&
-    REPO_RE.test(value) &&
-    value !== "." &&
-    value !== ".."
-  );
-}
-
-function isValidFileName(value) {
-  return (
-    typeof value === "string" &&
-    FILE_RE.test(value) &&
-    value !== "." &&
-    value !== ".."
-  );
-}
-
-function isValidRef(value) {
-  return value === DEFAULT_REF || isValidTag(value);
-}
-
-function isValidTag(value) {
-  return typeof value === "string" && TAG_RE.test(value);
-}
+export default createApp();

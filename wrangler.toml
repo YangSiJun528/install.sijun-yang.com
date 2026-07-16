@@ -1,13 +1,10 @@
 name = "install-sijun-yang-com"
 main = "worker.js"
 compatibility_date = "2026-04-24"
-workers_dev = true
-preview_urls = true
 
-routes = [
-  { pattern = "install.sijun-yang.com/*", zone_name = "sijun-yang.com" }
-]
+[route]
+pattern = "install.sijun-yang.com/*"
+zone_name = "sijun-yang.com"
 
 [observability]
 enabled = true
-head_sampling_rate = 1

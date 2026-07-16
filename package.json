@@ -4,11 +4,16 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "npm run validate:config && npm test",
+    "check": "npm run test:config && npm run test:unit",
     "deploy": "wrangler deploy",
     "dev": "wrangler dev",
-    "test": "node --test router.test.js",
-    "validate:config": "node validate-config.mjs"
+    "test": "npm run test:unit",
+    "test:config": "node --test config.test.js",
+    "test:unit": "node --test worker.test.js"
+  },
+  "dependencies": {
+    "hono": "^4.12.30",
+    "url-template": "^3.1.1"
   },
   "devDependencies": {
     "wrangler": "^4.68.0"

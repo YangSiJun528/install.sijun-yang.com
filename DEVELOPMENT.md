@@ -1,67 +1,134 @@
 # Development
 
-## 로컬 세팅
+## 로컬 실행
 
 ```bash
 npm install
+npm run dev
 ```
+
+## `redirects.json` 설정
+
+JSON key는 공개 경로이고 value는 목적지 URL입니다. 목적지 도메인과 프로토콜은 제한하지 않으므로 안전한 URL만 등록해야 합니다.
+
+### 정적 경로
+
+파라미터가 필요 없는 리다이렉트는 URL 문자열만 지정합니다.
+
+```json
+{
+  "/foo/latest": "https://bar.example/latest/foo.sh"
+}
+```
+
+```text
+/foo/latest
+→ https://bar.example/latest/foo.sh
+```
+
+### 필수 경로 파라미터
+
+경로의 `{name}`은 전체 경로 구간 하나를 받으며, 목적지 URL의 같은 placeholder에 삽입됩니다.
+
+```json
+{
+  "/foo/{version}": "https://bar.example/releases/{version}/foo.tar.gz"
+}
+```
+
+```text
+/foo/v1.0.0
+→ https://bar.example/releases/v1.0.0/foo.tar.gz
+```
+
+경로 파라미터는 선택값으로 만들지 않습니다. 기본 경로가 필요하면 정적 key를 추가합니다. 정적 경로는 동적 경로보다 먼저 매칭됩니다.
+
+```json
+{
+  "/foo/latest": "https://bar.example/releases/latest/foo.tar.gz",
+  "/foo/{version}": "https://bar.example/releases/{version}/foo.tar.gz"
+}
+```
+
+### 기본값 없는 필수 쿼리 파라미터
+
+목적지 URL에만 존재하는 placeholder는 같은 이름의 쿼리 파라미터로 받습니다. `defaults`가 없으면 필수입니다.
+
+```json
+{
+  "/foo/{version}": "https://bar.example/releases/{version}/foo-{os}-{arch}.tar.gz"
+}
+```
+
+```text
+/foo/v1.0.0?os=linux&arch=amd64
+→ https://bar.example/releases/v1.0.0/foo-linux-amd64.tar.gz
+
+/foo/v1.0.0?os=linux
+→ 400 Bad Request
+```
+
+### 기본값이 있는 선택 쿼리 파라미터
+
+`defaults`가 있는 쿼리 파라미터는 생략할 수 있습니다. 요청값이 기본값보다 우선합니다.
+
+```json
+{
+  "/foo/{version}": {
+    "url": "https://bar.example/releases/{version}/foo-{os}-{arch}.tar.gz",
+    "defaults": {
+      "os": "linux",
+      "arch": "amd64"
+    }
+  }
+}
+```
+
+```text
+/foo/v1.0.0
+→ https://bar.example/releases/v1.0.0/foo-linux-amd64.tar.gz
+
+/foo/v1.0.0?arch=arm64
+→ https://bar.example/releases/v1.0.0/foo-linux-arm64.tar.gz
+```
+
+같은 URL에서 일부만 선택값으로 만들 수도 있습니다.
+
+```json
+{
+  "/foo/{version}": {
+    "url": "https://bar.example/releases/{version}/foo-{os}-{arch}.tar.gz",
+    "defaults": {
+      "os": "linux"
+    }
+  }
+}
+```
+
+이 경우 `os`는 선택값이고 `arch`는 필수 쿼리 파라미터입니다.
+
+### 오류 규칙
+
+- 필요한 placeholder 값이 없으면 `400`입니다.
+- 목적지 URL에 없는 쿼리 파라미터는 `400`입니다.
+- 같은 쿼리 파라미터를 중복해서 보내면 `400`입니다.
+- 등록되지 않은 경로는 `404`입니다.
+- 잘못된 placeholder, 기본값 이름 또는 중복 경로는 CI 설정 검증에서 실패합니다.
+- `/healthz`와 `/info`는 시스템 경로이므로 `redirects.json`에 등록할 수 없습니다.
 
 ## 검증
 
 ```bash
+npm test
+npm run test:config
 npm run check
-```
-
-`npm run check`는 `redirects.json` 검증과 Worker 라우터 테스트를 함께 실행한다.
-
-## 로컬 실행
-
-Worker는 `redirects.json`을 배포 번들에 포함해서 사용한다.
-
-```bash
-npm run dev
-```
-
-## 배포 dry-run
-
-```bash
 HOME=/tmp npx wrangler deploy --dry-run
 ```
 
-## redirect 추가
-
-1. `redirects.json`의 `files` 배열에 항목을 추가한다.
-2. `file`은 공개 URL의 파일명이며 GitHub Releases asset 이름이기도 하다.
-3. `repo`는 GitHub repository 이름이다.
-4. `ref`가 없으면 `latest`로 간주한다. `ref`는 `latest` 또는 `vX.Y.Z` 형식의 release tag만 허용한다.
-5. `npm run check`를 실행한다.
-6. `main`에 push해서 Worker를 다시 배포한다.
-
-예시:
-
-```json
-{
-  "repo": "jungle-bell",
-  "file": "jungle-bell.sh",
-  "ref": "latest"
-}
-```
-
-## 동작 정책
-
-- Worker는 `redirects.json`에 등록된 `file`만 `/<file>` 형태로 redirect한다.
-- `tag` query만 명시 버전 선택에 사용한다.
-- `?tag=vX.Y.Z` 또는 prerelease tag만 허용한다.
-- `tag`가 없거나 `tag=latest`이면 GitHub의 `/releases/latest/download/<file>`로 redirect한다.
-- 명시 tag는 `/releases/download/<tag>/<file>`로 redirect한다.
-- GitHub API 호출, latest tag resolve, Worker-side cache는 사용하지 않는다.
-- `/`는 프로젝트 링크와 사용 가능한 경로를 보여준다.
-- `/healthz`는 번들된 설정이 유효하면 `ok`를 반환한다.
+- `npm test`: Worker 단위 테스트
+- `npm run test:config`: `redirects.json` 설정 계약 검사
+- `npm run check`: CI에서 설정 검사와 단위 테스트를 모두 실행
 
 ## 배포
 
-이 repository는 Cloudflare에 직접 연동되어 있다. GitHub Actions는 사용하지 않는다.
-
-Cloudflare 설정에서 build 단계에 `npm run check`가 연결되어 있고, 배포 단계에서 Worker deploy까지 수행한다. 따라서 `main`에 push하면 Cloudflare 쪽 pipeline이 검증과 배포를 처리한다.
-
-`redirects.json`은 Worker 배포 번들에 포함되므로, 설정 변경도 `main` push 이후 배포되어야 반영된다.
+Cloudflare의 빌드 단계가 `npm run check`를 실행하고, 검증을 통과한 `main` 변경을 배포합니다. `redirects.json`도 Worker 번들에 포함되므로 설정 변경에는 새 배포가 필요합니다.

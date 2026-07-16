@@ -1,16 +1,7 @@
 {
-  "version": 1,
-  "default_owner": "YangSiJun528",
-  "files": [
-    {
-      "repo": "jungle-bell",
-      "file": "jungle-bell.sh",
-      "ref": "latest"
-    },
-    {
-      "repo": "jungle-bell",
-      "file": "jungle-bell.ps1",
-      "ref": "latest"
-    }
-  ]
+  "/": "https://github.com/YangSiJun528/install.sijun-yang.com",
+  "/jungle-bell.sh/latest": "https://github.com/YangSiJun528/jungle-bell/releases/latest/download/jungle-bell.sh",
+  "/jungle-bell.sh/{version}": "https://github.com/YangSiJun528/jungle-bell/releases/download/{version}/jungle-bell.sh",
+  "/jungle-bell.ps1/latest": "https://github.com/YangSiJun528/jungle-bell/releases/latest/download/jungle-bell.ps1",
+  "/jungle-bell.ps1/{version}": "https://github.com/YangSiJun528/jungle-bell/releases/download/{version}/jungle-bell.ps1"
 }
