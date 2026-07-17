@@ -101,6 +101,70 @@ test("requires URL placeholders without defaults", async () => {
   assert.equal(complete.status, 302);
 });
 
+test("omits optional query placeholders when no value is provided", async () => {
+  const customApp = createApp({
+    "/tool": "https://example.com/tool{?os,arch}",
+  });
+
+  const omitted = await customApp.request(`${origin}/tool`);
+  const provided = await customApp.request(
+    `${origin}/tool?os=linux&arch=arm64`,
+  );
+
+  assert.equal(omitted.status, 302);
+  assert.equal(omitted.headers.get("Location"), "https://example.com/tool");
+  assert.equal(provided.status, 302);
+  assert.equal(
+    provided.headers.get("Location"),
+    "https://example.com/tool?os=linux&arch=arm64",
+  );
+});
+
+test("fills optional query placeholders from defaults and request values", async () => {
+  const customApp = createApp({
+    "/tool": {
+      url: "https://example.com/tool{?os,arch}",
+      defaults: { os: "linux" },
+    },
+  });
+
+  const defaults = await customApp.request(`${origin}/tool`);
+  const override = await customApp.request(
+    `${origin}/tool?os=darwin&arch=arm64`,
+  );
+
+  assert.equal(defaults.status, 302);
+  assert.equal(
+    defaults.headers.get("Location"),
+    "https://example.com/tool?os=linux",
+  );
+  assert.equal(override.status, 302);
+  assert.equal(
+    override.headers.get("Location"),
+    "https://example.com/tool?os=darwin&arch=arm64",
+  );
+});
+
+test("appends optional query placeholders after existing destination queries", async () => {
+  const customApp = createApp({
+    "/tool": "https://example.com/tool?download=1{&arch}",
+  });
+
+  const omitted = await customApp.request(`${origin}/tool`);
+  const provided = await customApp.request(`${origin}/tool?arch=x%2064`);
+
+  assert.equal(omitted.status, 302);
+  assert.equal(
+    omitted.headers.get("Location"),
+    "https://example.com/tool?download=1",
+  );
+  assert.equal(provided.status, 302);
+  assert.equal(
+    provided.headers.get("Location"),
+    "https://example.com/tool?download=1&arch=x%2064",
+  );
+});
+
 for (const query of [
   "?unknown=value",
   "?arch=amd64&unknown=value",

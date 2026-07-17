@@ -54,14 +54,14 @@ export function compileRedirects(config) {
       const { url, defaults = {} } =
         typeof value === "string" ? { url: value } : value;
       const pathNames = parsePlaceholderNames(path);
-      const urlNames = [...new Set(parsePlaceholderNames(url))];
+      const requiredNames = [...new Set(parsePlaceholderNames(url))];
 
       return {
         route: path.replace(PLACEHOLDER, ":$1"),
         template: parseTemplate(url),
         defaults,
-        queryNames: urlNames.filter((name) => !pathNames.includes(name)),
-        urlNames,
+        pathNames,
+        requiredNames,
         pathParamCount: pathNames.length,
       };
     })
@@ -74,7 +74,11 @@ export function compileRedirects(config) {
 
 export function resolveRedirect(redirect, path, query) {
   for (const [name, values] of Object.entries(query)) {
-    if (!redirect.queryNames.includes(name) || values.length !== 1) {
+    if (
+      redirect.pathNames.includes(name) ||
+      !templateUsesVariable(redirect.template, name) ||
+      values.length !== 1
+    ) {
       return null;
     }
   }
@@ -84,7 +88,7 @@ export function resolveRedirect(redirect, path, query) {
     values[name] = value;
   }
 
-  if (redirect.urlNames.some((name) => !Object.hasOwn(values, name))) {
+  if (redirect.requiredNames.some((name) => !Object.hasOwn(values, name))) {
     return null;
   }
 
@@ -93,6 +97,13 @@ export function resolveRedirect(redirect, path, query) {
 
 function parsePlaceholderNames(value) {
   return [...value.matchAll(PLACEHOLDER)].map((match) => match[1]);
+}
+
+function templateUsesVariable(template, name) {
+  return (
+    template.expand({ [name]: "template-variable-value" }) !==
+    template.expand({})
+  );
 }
 
 export default createApp();

@@ -9,7 +9,13 @@ npm run dev
 
 ## `redirects.json` 설정
 
-JSON key는 공개 경로이고 value는 목적지 URL입니다. 목적지 도메인과 프로토콜은 제한하지 않으므로 안전한 URL만 등록해야 합니다.
+JSON key는 공개 경로이고 value는 목적지 URL입니다. 목적지 URL은 RFC 6570 URI Template을 기반으로 작성합니다. 목적지 도메인과 프로토콜은 제한하지 않으므로 안전한 URL만 등록해야 합니다.
+
+| 표현식 | 동작 |
+| --- | --- |
+| `{name}` | 값을 URL에 삽입합니다. 경로값이나 기본값이 없으면 같은 이름의 요청 쿼리 파라미터가 필요합니다. |
+| `{?name}` | 값이 있을 때 새 쿼리를 `?name=value` 형식으로 추가합니다. |
+| `{&name}` | 값이 있을 때 기존 쿼리 뒤에 `&name=value` 형식으로 추가합니다. |
 
 ### 정적 경로
 
@@ -106,6 +112,44 @@ JSON key는 공개 경로이고 value는 목적지 URL입니다. 목적지 도�
 ```
 
 이 경우 `os`는 선택값이고 `arch`는 필수 쿼리 파라미터입니다.
+
+### 선택 쿼리 파라미터
+
+목적지 쿼리 파라미터 자체를 선택적으로 구성하려면 `{?name}`을 사용합니다. 요청과 `defaults`에 모두 값이 없으면 표현식 전체가 생략됩니다. 요청값이 `defaults`보다 우선합니다.
+
+`{?name}`이 `?`를 생성하므로 URL에 `?`를 따로 추가하지 않습니다.
+
+```json
+{
+  "/foo": "https://bar.example/download{?arch}"
+}
+```
+
+```text
+/foo
+→ https://bar.example/download
+
+/foo?arch=arm64
+→ https://bar.example/download?arch=arm64
+```
+
+목적지 URL에 쿼리 파라미터가 이미 있으면 `{&name}`을 사용합니다.
+
+```json
+{
+  "/foo": "https://bar.example/download?raw=1{&arch}"
+}
+```
+
+```text
+/foo
+→ https://bar.example/download?raw=1
+
+/foo?arch=arm64
+→ https://bar.example/download?raw=1&arch=arm64
+```
+
+여러 선택 파라미터는 `{?os,arch}` 또는 `{&os,arch}`처럼 쉼표로 나열합니다. RFC 6570 확장 규칙에 따라 값이 없는 파라미터는 생략되고, 쿼리 구분자와 URL 인코딩이 적용됩니다.
 
 ### 오류 규칙
 

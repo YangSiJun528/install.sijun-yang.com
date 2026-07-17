@@ -1,14 +1,23 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { parseTemplate } from "url-template";
 import redirects from "./redirects.json" with { type: "json" };
 
 const placeholder = /\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
+const templateExpression = /\{[^{}]+\}/g;
 const reservedPaths = new Set(["/healthz", "/info"]);
 
 function placeholderNames(value, label) {
   const names = [...value.matchAll(placeholder)].map((match) => match[1]);
   assert.doesNotMatch(value.replace(placeholder, ""), /[{}]/, label);
   return names;
+}
+
+function templateUsesVariable(template, name) {
+  return (
+    template.expand({ [name]: "template-variable-value" }) !==
+    template.expand({})
+  );
 }
 
 test("declares valid redirect configuration", () => {
@@ -33,15 +42,25 @@ test("declares valid redirect configuration", () => {
       path,
     );
     assert.ok(typeof entry.url === "string" && entry.url.length > 0, path);
+    assert.doesNotMatch(
+      entry.url.replace(templateExpression, ""),
+      /[{}]/,
+      path,
+    );
+    const template = parseTemplate(entry.url);
 
-    const urlNames = placeholderNames(entry.url, path);
     for (const name of pathNames) {
-      assert.ok(urlNames.includes(name), `${path}: unused {${name}}`);
+      assert.ok(
+        templateUsesVariable(template, name),
+        `${path}: unused {${name}}`,
+      );
     }
 
-    const queryNames = urlNames.filter((name) => !pathNames.includes(name));
     for (const [name, defaultValue] of Object.entries(entry.defaults ?? {})) {
-      assert.ok(queryNames.includes(name), `${path}: invalid default ${name}`);
+      assert.ok(
+        !pathNames.includes(name) && templateUsesVariable(template, name),
+        `${path}: invalid default ${name}`,
+      );
       assert.equal(typeof defaultValue, "string", path);
     }
 
